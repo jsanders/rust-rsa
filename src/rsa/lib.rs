@@ -17,7 +17,6 @@ fn small_primes(bound: uint) -> ~[uint] {
   let mut primes = std::vec::from_fn(bound+1, |num| num == 2 || num & 1 != 0);
 
   // Start at 3 and step by 2 because we've already filtered multiples of 2
-  // let mut iter = count(3u, 2).filter(|num| primes[*num]).take_while(|&num| num * num <= bound);
   for num in count(3u, 2) {
     if num * num > bound { break; } // Break when we've checked everything <= bound
     if !primes[num] { continue; }   // We know num is composite, so move on
