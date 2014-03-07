@@ -60,6 +60,12 @@ impl Rsa {
   }
 
   pub fn encrypt(&self, m: ~str) -> ~str {
+    let len = m.char_len();
+    if len >= 256 {
+      fail!("Can't encrypt messages 256 bytes or more in length");
+    } else if len < 86 {
+      fail!("Encrypting strings less than 86 bytes long is insecure");
+    }
     Rsa::to_hex(&self.encrypt_biguint(&Rsa::from_plaintext(m)))
   }
 
