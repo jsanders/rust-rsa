@@ -26,15 +26,15 @@ cleandeps:
 
 deps:
 	@for dep in $(DEPS) ; do \
-		$(MAKE) -w -C $$dep && $(MAKE) -w -C $$dep install ; \
+		$(MAKE) -w deps -C $$dep && $(MAKE) -w -C $$dep && $(MAKE) -w -C $$dep install ; \
 	done
 
-lib: $(BUILD) deps $(LIBSRC)
+lib: $(BUILD) $(LIBSRC)
 	$(RUSTC) --out-dir $(BUILD) $(LIBSRC)
 
 test: lib
 	$(RUSTC) --test -o $(BUILD)/test $(LIBSRC)
-	$(BUILD)/test
+	$(BUILD)/test $(TEST)
 
 install:
 	cp $(wildcard $(LIB)) $(SYSLIBDIR)
