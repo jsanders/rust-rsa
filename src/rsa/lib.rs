@@ -4,200 +4,90 @@
 #[crate_type = "rlib"];
 
 extern crate bignum;
+extern crate serialize;
 
-use std::num::{Zero, One};
-use std::rand::task_rng;
-use std::iter::{count, range_step_inclusive};
-use bignum::{BigUint, RandBigInt, ToBigUint};
+use std::num::ToStrRadix;
+use bignum::{BigUint, ToBigUint};
+use serialize::hex::{ToHex, FromHex};
 
-// Find all prime numbers less than n
-fn small_primes(bound: uint) -> ~[uint] {
-  // num is considered prime as long as primes[num] is true
-  // Start with all evens besides 2 filtered out
-  let mut primes = std::vec::from_fn(bound+1, |num| num == 2 || num & 1 != 0);
+pub mod primes;
 
-  // Start at 3 and step by 2 because we've already filtered multiples of 2
-  for num in count(3u, 2) {
-    if num * num > bound { break; } // Break when we've checked everything <= bound
-    if !primes[num] { continue; }   // We know num is composite, so move on
+#[deriving(Show)]
+pub struct RsaKey(BigUint, BigUint);
 
-    // We know num is prime, so mark its multiples composite
-    // We can start at num^2 because smaller non-primes have already been eliminated
-    for j in range_step_inclusive(num*num, bound, num) { primes[j] = false; }
-  }
-
-  primes.
-    move_iter().
-    enumerate().
-    skip(2).
-    filter_map(|(i, p)| if p {Some(i)} else {None}).
-    collect::<~[uint]>()
+#[deriving(Show)]
+pub struct Rsa {
+  public:  RsaKey,
+  private: RsaKey
 }
 
-// Modular exponentiation by squaring
-fn mod_exp(base: &BigUint, exponent: &BigUint, modulus: &BigUint) -> BigUint {
-  let (zero, one): (BigUint, BigUint) = (Zero::zero(), One::one());
-  let mut result = one.clone();
-  let mut baseAcc = base.clone();
-  let mut exponentAcc = exponent.clone();
-
-  while exponentAcc > zero {
-    // Accumulate current base if current exponent bit is 1
-    if (exponentAcc & one) == one {
-      result = result.mul(&baseAcc);
-      result = result.rem(modulus);
-    }
-    // Get next base by squaring
-    baseAcc = baseAcc * baseAcc;
-    baseAcc = baseAcc % *modulus;
-
-    // Get next bit of exponent
-    exponentAcc = exponentAcc.shr(&1);
+impl Rsa {
+  pub fn new() -> Rsa {
+    let e = 3u.to_biguint().unwrap();
+    let p = primes::rsa_prime(&e);
+    let q = primes::rsa_prime(&e);
+    let n = p * q;
+    let one = 1u.to_biguint().unwrap();
+    let et = (p - one) * (q - one);
+    let d = primes::invmod(&e, &et).unwrap(); // Mathematically, shouldn't ever fail
+    Rsa{ public: RsaKey(e, n.clone()), private: RsaKey(d, n) }
   }
 
-  result
-}
-
-// Given an even `n`, find first `s` and odd `d` such that n = 2^s*d
-fn rewrite(n: &BigUint) -> (BigUint, BigUint) {
-  let mut d = n.clone();
-  let mut s: BigUint = Zero::zero();
-  let one: BigUint = One::one();
-  let two = one + one;
-
-  while d.is_even() {
-    d = d / two;
-    s = s + one;
+  fn to_hex(m: &BigUint) -> ~str {
+    m.to_str_radix(16)
   }
-  (s, d)
-}
 
-// Rabin-Miller until probability of false-positive is < 2^-128
-fn rabin_miller(candidate: &BigUint) -> bool {
-  let zero: BigUint = Zero::zero();
-  let one: BigUint = One::one();
-  let two = one + one;
-
-  // Rabin-Miller has trouble with even numbers, so special case them
-  if candidate == &two   { return true }
-  if candidate.is_even() { return false }
-
-  let (s, d) = rewrite(&(candidate - one));
-  // Probability of false-positive is 2^-k
-  let mut k = 0;
-  while k < 128 {
-    let basis = task_rng().gen_biguint_range(&two, candidate);
-    let mut v = mod_exp(&basis, &d, candidate);
-    if v != one && v != (candidate - one) {
-      let mut i = zero.clone();
-      loop {
-        v = mod_exp(&v, &two, candidate);
-        if v == (candidate - one) {
-          break;
-        } else if v == one || i == (s - one) {
-          return false
-        }
-        i = i + one;
-      }
-    }
-    k += 2;
+  fn to_plaintext(m: &BigUint) -> ~str {
+    m.to_str_radix(16).from_hex().unwrap().into_ascii().into_str()
   }
-  true
-}
 
-pub fn is_prime(candidate: &BigUint) -> bool {
-  for p in small_primes(1000).move_iter() {
-    let bigp = &p.to_biguint().unwrap();
-    if candidate == bigp {
-      return true;
-    } else if bigp.divides(candidate) {
-      return false;
-    }
+  fn from_plaintext(m: ~str) -> BigUint {
+    BigUint::from_str_radix(m.as_bytes().to_hex(), 16).unwrap()
   }
-  rabin_miller(candidate)
-}
 
-pub fn big_prime() -> BigUint {
-  let one: BigUint = One::one();
-  let two = one + one;
+  fn from_hex(m: ~str) -> BigUint {
+    BigUint::from_str_radix(m, 16).unwrap()
+  }
 
-  let mut rng = task_rng();
-  let mut candidate = rng.gen_biguint(1024);
-  if candidate.is_even() {
-    candidate = candidate + one;
+  fn encrypt_biguint(&self, m: &BigUint) -> BigUint {
+    let RsaKey(ref e, ref n) = self.public;
+    primes::mod_exp(m, e, n)
   }
-  while !is_prime(&candidate) {
-    candidate = candidate + two;
+
+  fn decrypt_biguint(&self, c: &BigUint) -> BigUint {
+    let RsaKey(ref d, ref n) = self.private;
+    primes::mod_exp(c, d, n)
   }
-  candidate
+
+  pub fn encrypt(&self, m: ~str) -> ~str {
+    Rsa::to_hex(&self.encrypt_biguint(&Rsa::from_plaintext(m)))
+  }
+
+  pub fn decrypt(&self, m: ~str) -> ~str {
+    Rsa::to_plaintext(&self.decrypt_biguint(&Rsa::from_hex(m)))
+  }
+
 }
 
 #[cfg(test)]
-mod test {
-  use super::{small_primes, mod_exp, is_prime, big_prime};
-  use bignum::{BigUint, ToBigUint};
-  use std::from_str::FromStr;
-  use std::num::{One};
+mod test_rsa {
+  use super::Rsa;
+  use bignum::ToBigUint;
 
   #[test]
-  fn test_small_primes() {
-    assert_eq!(small_primes(20), ~[2, 3, 5, 7, 11, 13, 17, 19]);
+  fn test_conversions() {
+    assert_eq!(Rsa::from_plaintext(~"abcd"), 1633837924u.to_biguint().unwrap()) 
+    assert_eq!(Rsa::from_hex(~"61626364"), 1633837924u.to_biguint().unwrap()) 
+    assert_eq!(Rsa::to_plaintext(&1633837924u.to_biguint().unwrap()), ~"abcd") 
+    assert_eq!(Rsa::to_hex(&1633837924u.to_biguint().unwrap()), ~"61626364") 
   }
 
   #[test]
-  fn test_mod_exp() {
-    let two = 2u.to_biguint().unwrap();
-    let three = 3u.to_biguint().unwrap();
-    let four = 4u.to_biguint().unwrap();
-    let seven = 7u.to_biguint().unwrap();
-    let one: BigUint = One::one();
-    assert_eq!(mod_exp(&two, &two, &seven), four);
-    assert_eq!(mod_exp(&two, &three, &seven), one);
-  }
-
-  #[test]
-  fn test_is_prime() {
-    // Trivial composites
-    assert!(!is_prime(&27u.to_biguint().unwrap()));
-    assert!(!is_prime(&1000u.to_biguint().unwrap()));
-
-    // Big composite
-    let known_composite_str =
-      "5998532537771751919223292779480088814208363735733315189796\
-       0101571924729278483053936094631318228299245382944144514257\
-       1892041750575871002135423472834270012679636490411466324906\
-       0917779866191551702619628937679141866044903982454458080353\
-       0712317148561932424450480592940247925414152689953357952137\
-       58437410764432671";
-    let known_composite: BigUint = FromStr::from_str(known_composite_str).unwrap();
-    assert!(!is_prime(&known_composite));
-
-    // Small primes
-    for p in small_primes(1000).move_iter() {
-      assert!(is_prime(&p.to_biguint().unwrap()));
-    }
-
-    // Big primes
-    assert!(is_prime(&15486869u.to_biguint().unwrap()));
-    assert!(is_prime(&179425357u.to_biguint().unwrap()));
-    let known_prime_str =
-      "1185953636795374682612582767575507043186511556015932992921\
-      98496313960907653004730006758459999825003212944725610469590\
-      67402012450624977056639426083223780925249450568325586119944\
-      94823851964743424816413015031211427409331862791112093760615\
-      35491003888763334916103110474472949854230628809878558752830\
-      476310536476569";
-    let known_prime: BigUint = FromStr::from_str(known_prime_str).unwrap();
-    assert!(is_prime(&known_prime));
-  }
-
-  #[test]
-  fn test_big_prime() {
-    let p = big_prime();
-
-    // Not a deterministic test, but try to verify that this is indeed a big number
-    // The odds of getting fewer than 64 bits out of 1024 possible are really small
-    assert!(p.bits() >= 64u);
-    assert!(is_prime(&p));
+  fn test_encrypt_decrypt() {
+    let rsa = Rsa::new();
+    let m = ~"super secret message";
+    let encrypted = rsa.encrypt(m.clone());
+    let decrypted = rsa.decrypt(encrypted);
+    assert_eq!(m, decrypted);
   }
 }
