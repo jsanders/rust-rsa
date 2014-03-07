@@ -14,10 +14,10 @@ EXAMPLESRCS ?= $(wildcard $(SRC)/examples/*.rs)
 all: test
 
 $(BUILD):
-	mkdir -p $(BUILD)
+	@mkdir -p $(BUILD)
 
 clean: cleandeps
-	rm -rf $(BUILD)/* || true
+	@rm -rf $(BUILD)/* || true
 
 cleandeps:
 	@for dep in $(DEPS) ; do \
@@ -30,15 +30,17 @@ deps:
 	done
 
 lib: $(BUILD) $(LIBSRC)
-	$(RUSTC) --out-dir $(BUILD) $(LIBSRC)
+	@$(RUSTC) --out-dir $(BUILD) $(LIBSRC)
 
 test: lib
-	$(RUSTC) --test -o $(BUILD)/test $(LIBSRC)
-	$(BUILD)/test $(TEST)
+	@$(RUSTC) --test -o $(BUILD)/test $(LIBSRC)
+	@$(BUILD)/test $(TEST)
 
 install:
-	cp $(wildcard $(LIB)) $(SYSLIBDIR)
+	@cp $(wildcard $(LIB)) $(SYSLIBDIR)
 
 examples: $(BUILD) lib install $(EXAMPLESRCS)
-	mkdir -p $(BUILD)/examples
-	$(RUSTC) $(EXAMPLESRCS) --out-dir $(BUILD)/examples
+	@mkdir -p $(BUILD)/examples
+	@for example in $(EXAMPLESRCS) ; do \
+		$(RUSTC) $$example --out-dir $(BUILD)/examples || exit 1; \
+	done
