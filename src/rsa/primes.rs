@@ -111,12 +111,12 @@ pub fn is_prime(candidate: &BigUint) -> bool {
   rabin_miller(candidate)
 }
 
-pub fn big_prime() -> BigUint {
+pub fn big_prime(size: uint) -> BigUint {
   let one: BigUint = One::one();
   let two = one + one;
 
   let mut rng = task_rng();
-  let mut candidate = rng.gen_biguint(1024);
+  let mut candidate = rng.gen_biguint(size);
   if candidate.is_even() {
     candidate = candidate + one;
   }
@@ -128,10 +128,10 @@ pub fn big_prime() -> BigUint {
 
 /// An prime suitable for RSA with exponent `e`
 /// The prime `p` - 1 can't be a multiple of `e`
-pub fn rsa_prime(e: &BigUint) -> BigUint {
+pub fn rsa_prime(size: uint, e: &BigUint) -> BigUint {
   let one: BigUint = One::one();
   loop {
-    let p = big_prime();
+    let p = big_prime(size);
     if p.modulus(e) != one { return p }
   }
 }
@@ -234,11 +234,10 @@ mod test_primes {
 
   #[test]
   fn test_big_prime() {
-    let p = big_prime();
+    let size = 1024;
+    let p = big_prime(size);
 
-    // Not a deterministic test, but try to verify that this is indeed a big number
-    // The odds of getting fewer than 64 bits out of 1024 possible are really small
-    assert!(p.bits() >= 64u);
+    assert!(p.bits() >= size - 1);
     assert!(is_prime(&p));
   }
 
@@ -247,8 +246,9 @@ mod test_primes {
     let one = 1u.to_biguint().unwrap();
     let three = 3u.to_biguint().unwrap();
     let five = 5u.to_biguint().unwrap();
-    assert!(rsa_prime(&three).modulus(&three) != one);
-    assert!(rsa_prime(&five).modulus(&five) != one);
+    let size = 1024;
+    assert!(rsa_prime(size, &three).modulus(&three) != one);
+    assert!(rsa_prime(size, &five).modulus(&five) != one);
   }
 
   #[test]

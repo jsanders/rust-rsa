@@ -12,7 +12,12 @@ use serialize::hex::{ToHex, FromHex};
 
 pub mod primes;
 
-pub enum PublicExponent {
+pub enum KeySizeT {
+  DefaultKeySize,
+  KeySize(uint)
+}
+
+pub enum PublicExponentT {
   DefaultExponent,
   Exponent(uint)
 }
@@ -20,7 +25,8 @@ pub enum PublicExponent {
 #[deriving(Show)]
 pub struct PublicKey {
   e: BigUint,
-  n: BigUint
+  n: BigUint,
+  key_size: uint
 }
 
 #[deriving(Show)]
@@ -29,20 +35,34 @@ pub struct PrivateKey {
   n: BigUint
 }
 
-/// Generate RSA key-pair using public exponent e.
-pub fn gen_keys(e: PublicExponent) -> (PublicKey, PrivateKey) {
+/// Generate RSA key-pair with default size and exponent.
+pub fn gen_keys_default() -> (PublicKey, PrivateKey) {
+  gen_keys(DefaultKeySize, DefaultExponent)
+}
+
+/// Generate RSA key-pair with given size and exponent.
+pub fn gen_keys(key_size: KeySizeT, e: PublicExponentT) -> (PublicKey, PrivateKey) {
+  let key_size = match key_size {
+    KeySize(key_size) => key_size,
+    _                 => 1024
+  };
+  let prime_size = key_size / 2;
+
   let e = match e {
     Exponent(e) => e,
     _           => 3u
   }.to_biguint().unwrap();
-  let p = primes::rsa_prime(&e);
-  let q = primes::rsa_prime(&e);
+
+  let p = primes::rsa_prime(prime_size, &e);
+  let q = primes::rsa_prime(prime_size, &e);
   let n = p * q;
   let one = 1u.to_biguint().unwrap();
   let et = (p - one) * (q - one);
   let d = primes::invmod(&e, &et).unwrap();
   
-  ( PublicKey{ e: e, n: n.clone() }, PrivateKey{ d: d, n: n } )
+  let public_key = PublicKey{ e: e, n: n.clone(), key_size: key_size };
+  let private_key = PrivateKey{ d: d, n: n };
+  (public_key, private_key)
 }
 
 impl PublicKey {
@@ -52,7 +72,11 @@ impl PublicKey {
 
   /// Encrypt a message using this public key
   pub fn encrypt(&self, m: ~str) -> ~str {
-    assert!(m.char_len() < 256, "Message must be less than 256 bytes for RSA 2048");
+    let max_len = self.key_size / 8;
+    assert!( m.char_len() < max_len,
+      "Message must be less than {} bytes for RSA with key size {}",
+      max_len, self.key_size);
+
     to_hex(&self.encrypt_biguint(&from_plaintext(m)))
   }
 }
@@ -88,8 +112,10 @@ fn from_hex(m: ~str) -> BigUint {
 
 #[cfg(test)]
 mod test_rsa {
-  use super::{Default, Exponent, gen_keys, from_hex, to_hex, from_plaintext, to_plaintext};
+  use super::{Exponent, KeySize, gen_keys_default, gen_keys,
+              from_hex, to_hex, from_plaintext, to_plaintext};
   use bignum::ToBigUint;
+  use std::{str,vec};
 
   #[test]
   fn test_conversions() {
@@ -101,7 +127,7 @@ mod test_rsa {
 
   #[test]
   fn test_encrypt_decrypt_default() {
-    let (public, private) = gen_keys(DefaultExponent);
+    let (public, private) = gen_keys_default();
     let m = ~"super secret message";
     let encrypted = public.encrypt(m.clone());
     let decrypted = private.decrypt(encrypted);
@@ -110,10 +136,18 @@ mod test_rsa {
 
   #[test]
   fn test_encrypt_decrypt_five() {
-    let (public, private) = gen_keys(Exponent(5u));
+    let (public, private) = gen_keys(KeySize(2048), Exponent(5u));
     let m = ~"super secret message";
     let encrypted = public.encrypt(m.clone());
     let decrypted = private.decrypt(encrypted);
     assert_eq!(m, decrypted);
+  }
+
+  #[test]
+  #[should_fail]
+  fn test_message_too_long() {
+    let (public, _) = gen_keys_default();
+    let m = str::from_chars(vec::from_elem(128, 'a'));
+    public.encrypt(m.clone());
   }
 }
