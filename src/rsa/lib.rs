@@ -12,88 +12,108 @@ use serialize::hex::{ToHex, FromHex};
 
 pub mod primes;
 
-#[deriving(Show)]
-pub struct RsaKey(BigUint, BigUint);
-
-#[deriving(Show)]
-pub struct Rsa {
-  public:  RsaKey,
-  private: RsaKey
+pub enum PublicExponent {
+  DefaultExponent,
+  Exponent(uint)
 }
 
-impl Rsa {
-  pub fn new() -> Rsa {
-    let e = 3u.to_biguint().unwrap();
-    let p = primes::rsa_prime(&e);
-    let q = primes::rsa_prime(&e);
-    let n = p * q;
-    let one = 1u.to_biguint().unwrap();
-    let et = (p - one) * (q - one);
-    let d = primes::invmod(&e, &et).unwrap(); // Mathematically, shouldn't ever fail
-    Rsa{ public: RsaKey(e, n.clone()), private: RsaKey(d, n) }
-  }
+#[deriving(Show)]
+pub struct PublicKey {
+  e: BigUint,
+  n: BigUint
+}
 
-  fn to_hex(m: &BigUint) -> ~str {
-    m.to_str_radix(16)
-  }
+#[deriving(Show)]
+pub struct PrivateKey {
+  d: BigUint,
+  n: BigUint
+}
 
-  fn to_plaintext(m: &BigUint) -> ~str {
-    m.to_str_radix(16).from_hex().unwrap().into_ascii().into_str()
-  }
+/// Generate RSA key-pair using public exponent e.
+pub fn gen_keys(e: PublicExponent) -> (PublicKey, PrivateKey) {
+  let e = match e {
+    Exponent(e) => e,
+    _           => 3u
+  }.to_biguint().unwrap();
+  let p = primes::rsa_prime(&e);
+  let q = primes::rsa_prime(&e);
+  let n = p * q;
+  let one = 1u.to_biguint().unwrap();
+  let et = (p - one) * (q - one);
+  let d = primes::invmod(&e, &et).unwrap();
+  
+  ( PublicKey{ e: e, n: n.clone() }, PrivateKey{ d: d, n: n } )
+}
 
-  fn from_plaintext(m: ~str) -> BigUint {
-    BigUint::from_str_radix(m.as_bytes().to_hex(), 16).unwrap()
-  }
-
-  fn from_hex(m: ~str) -> BigUint {
-    BigUint::from_str_radix(m, 16).unwrap()
-  }
-
+impl PublicKey {
   fn encrypt_biguint(&self, m: &BigUint) -> BigUint {
-    let RsaKey(ref e, ref n) = self.public;
-    primes::mod_exp(m, e, n)
+    primes::mod_exp(m, &self.e, &self.n)
   }
 
-  fn decrypt_biguint(&self, c: &BigUint) -> BigUint {
-    let RsaKey(ref d, ref n) = self.private;
-    primes::mod_exp(c, d, n)
-  }
-
+  /// Encrypt a message using this public key
   pub fn encrypt(&self, m: ~str) -> ~str {
-    let len = m.char_len();
-    if len >= 256 {
-      fail!("Can't encrypt messages 256 bytes or more in length");
-    } else if len < 86 {
-      fail!("Encrypting strings less than 86 bytes long is insecure");
-    }
-    Rsa::to_hex(&self.encrypt_biguint(&Rsa::from_plaintext(m)))
+    assert!(m.char_len() < 256, "Message must be less than 256 bytes for RSA 2048");
+    to_hex(&self.encrypt_biguint(&from_plaintext(m)))
+  }
+}
+
+impl PrivateKey {
+  fn decrypt_biguint(&self, c: &BigUint) -> BigUint {
+    primes::mod_exp(c, &self.d, &self.n)
   }
 
+  /// Decrypt a message using this private key
   pub fn decrypt(&self, m: ~str) -> ~str {
-    Rsa::to_plaintext(&self.decrypt_biguint(&Rsa::from_hex(m)))
+    to_plaintext(&self.decrypt_biguint(&from_hex(m)))
   }
+}
 
+/// Encoding helper functions
+
+fn to_hex(m: &BigUint) -> ~str {
+  m.to_str_radix(16)
+}
+
+fn to_plaintext(m: &BigUint) -> ~str {
+  m.to_str_radix(16).from_hex().unwrap().into_ascii().into_str()
+}
+
+fn from_plaintext(m: ~str) -> BigUint {
+  BigUint::from_str_radix(m.as_bytes().to_hex(), 16).unwrap()
+}
+
+fn from_hex(m: ~str) -> BigUint {
+  BigUint::from_str_radix(m, 16).unwrap()
 }
 
 #[cfg(test)]
 mod test_rsa {
-  use super::Rsa;
+  use super::{Default, Exponent, gen_keys, from_hex, to_hex, from_plaintext, to_plaintext};
   use bignum::ToBigUint;
 
   #[test]
   fn test_conversions() {
-    assert_eq!(Rsa::from_plaintext(~"abcd"), 1633837924u.to_biguint().unwrap()) 
-    assert_eq!(Rsa::from_hex(~"61626364"), 1633837924u.to_biguint().unwrap()) 
-    assert_eq!(Rsa::to_plaintext(&1633837924u.to_biguint().unwrap()), ~"abcd") 
-    assert_eq!(Rsa::to_hex(&1633837924u.to_biguint().unwrap()), ~"61626364") 
+    assert_eq!(from_plaintext(~"abcd"), 1633837924u.to_biguint().unwrap()) 
+    assert_eq!(from_hex(~"61626364"), 1633837924u.to_biguint().unwrap()) 
+    assert_eq!(to_plaintext(&1633837924u.to_biguint().unwrap()), ~"abcd") 
+    assert_eq!(to_hex(&1633837924u.to_biguint().unwrap()), ~"61626364") 
   }
 
   #[test]
-  fn test_encrypt_decrypt() {
-    let rsa = Rsa::new();
+  fn test_encrypt_decrypt_default() {
+    let (public, private) = gen_keys(DefaultExponent);
     let m = ~"super secret message";
-    let encrypted = rsa.encrypt(m.clone());
-    let decrypted = rsa.decrypt(encrypted);
+    let encrypted = public.encrypt(m.clone());
+    let decrypted = private.decrypt(encrypted);
+    assert_eq!(m, decrypted);
+  }
+
+  #[test]
+  fn test_encrypt_decrypt_five() {
+    let (public, private) = gen_keys(Exponent(5u));
+    let m = ~"super secret message";
+    let encrypted = public.encrypt(m.clone());
+    let decrypted = private.decrypt(encrypted);
     assert_eq!(m, decrypted);
   }
 }
