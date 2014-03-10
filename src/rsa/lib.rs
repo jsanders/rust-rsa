@@ -66,7 +66,7 @@ pub fn gen_keys(key_size: KeySizeT, e: PublicExponentT) -> (PublicKey, PrivateKe
 }
 
 impl PublicKey {
-  fn encrypt_biguint(&self, m: &BigUint) -> BigUint {
+  pub fn encrypt_biguint(&self, m: &BigUint) -> BigUint {
     primes::mod_exp(m, &self.e, &self.n)
   }
 
@@ -82,7 +82,7 @@ impl PublicKey {
 }
 
 impl PrivateKey {
-  fn decrypt_biguint(&self, c: &BigUint) -> BigUint {
+  pub fn decrypt_biguint(&self, c: &BigUint) -> BigUint {
     primes::mod_exp(c, &self.d, &self.n)
   }
 
@@ -123,6 +123,15 @@ mod test_rsa {
     assert_eq!(from_hex(~"61626364"), 1633837924u.to_biguint().unwrap()) 
     assert_eq!(to_plaintext(&1633837924u.to_biguint().unwrap()), ~"abcd") 
     assert_eq!(to_hex(&1633837924u.to_biguint().unwrap()), ~"61626364") 
+  }
+
+  #[test]
+  fn test_encrypt_decrypt_biguint() {
+    let (public, private) = gen_keys_default();
+    let m = 1633837924u.to_biguint().unwrap();
+    let encrypted = public.encrypt_biguint(&m);
+    let decrypted = private.decrypt_biguint(&encrypted);
+    assert_eq!(m, decrypted);
   }
 
   #[test]
