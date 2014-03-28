@@ -1,14 +1,15 @@
-extern crate std;
 use std::num::{Zero, One};
-use std::rand::task_rng;
 use std::iter::{count, range_step_inclusive};
+use std::slice;
+use rand::task_rng;
 use bignum::{BigUint, RandBigInt, ToBigUint, BigInt, ToBigInt};
+use num::Integer;
 
 // Find all prime numbers less than n
 fn small_primes(bound: uint) -> ~[uint] {
   // num is considered prime as long as primes[num] is true
   // Start with all evens besides 2 filtered out
-  let mut primes = std::vec::from_fn(bound+1, |num| num == 2 || num & 1 != 0);
+  let mut primes = slice::from_fn(bound+1, |num| num == 2 || num & 1 != 0);
 
   // Start at 3 and step by 2 because we've already filtered multiples of 2
   for num in count(3u, 2) {

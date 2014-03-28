@@ -5,6 +5,8 @@
 
 extern crate bignum;
 extern crate serialize;
+extern crate rand;
+extern crate num;
 
 use std::num::ToStrRadix;
 use bignum::{BigUint, ToBigUint};
@@ -115,7 +117,7 @@ mod test_rsa {
   use super::{Exponent, KeySize, gen_keys_default, gen_keys,
               from_hex, to_hex, from_plaintext, to_plaintext};
   use bignum::ToBigUint;
-  use std::{str,vec};
+  use std::{str,slice};
 
   #[test]
   fn test_conversions() {
@@ -156,7 +158,7 @@ mod test_rsa {
   #[should_fail]
   fn test_message_too_long() {
     let (public, _) = gen_keys_default();
-    let m = str::from_chars(vec::from_elem(128, 'a'));
+    let m = str::from_chars(slice::from_elem(128, 'a'));
     public.encrypt(m.clone());
   }
 }
